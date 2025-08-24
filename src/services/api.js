@@ -6,7 +6,8 @@
 
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5001/api'; // FIXED: Was 5001, now 5000
+// const API_BASE_URL = 'http://localhost:5001/api'; // FIXED: Was 5001, now 5000
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 // Create axios instance
 const api = axios.create({
