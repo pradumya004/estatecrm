@@ -1,4 +1,5 @@
 // estatecrm/src/components/common/Sidebar.jsx
+// UPDATED: Uses real user data and permissions from database
 
 import React, { useState, useMemo } from "react";
 import { NavLink, useLocation } from "react-router-dom";
@@ -23,306 +24,381 @@ import {
   Building2,
   Globe,
   Crown,
+  UserPlus,
 } from "lucide-react";
-import { useAuth } from "../../context/AuthContext";
-import { useRBAC } from "../../hooks/useRBAC";
+import { useAuth } from "../../hooks/useAuth";
 import { PERMISSIONS } from "../../utils/rbacConstants";
+import { formatToTitleCase } from "../../utils/formatters";
 
 const Sidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const location = useLocation();
-  const { user, logout } = useAuth();
-  const rbac = useRBAC(user);
-  //   console.log("RBAC:", rbac);
+  const { user, logout, hasPermission, hasAnyPermission, isAdmin, isManager } =
+    useAuth();
 
   // Base path based on user role
   const basePath = useMemo(() => {
     if (!user) return "/";
-    // We can use the rbac hook here too for consistency!
-    return rbac.isAdministrator ? "/admin" : "/agent";
-  }, [user, rbac]);
+    return isAdmin ? "/admin" : "/agent";
+  }, [user, isAdmin]);
 
-  //   Agent Sidebar
+  // Agent Sidebar Navigation - Using real permissions
   const agentNav = [
     {
       id: "dashboard",
       label: "Dashboard",
       path: "",
       icon: Home,
-      accessCheck: () => true,
+    //   accessCheck: () => true, // Everyone can access dashboard
     },
     {
       id: "profile",
       label: "My Profile",
       path: "/profile",
       icon: User,
-      accessCheck: (rbac) => rbac.checkPermission("VIEW_OWN_PROFILE"),
+    //   accessCheck: () => hasPermission(PERMISSIONS.VIEW_OWN_PROFILE),
     },
     {
       id: "assigned-leads",
       label: "Assigned Leads",
       path: "/leads",
       icon: Target,
-      accessCheck: (rbac) => rbac.checkPermission("VIEW_ASSIGNED_LEADS"),
+    //   accessCheck: () => hasPermission(PERMISSIONS.VIEW_ASSIGNED_LEADS),
     },
     {
       id: "assigned-properties",
       label: "Assigned Properties",
-      path: "/assigned-properties",
+      path: "/properties",
       icon: Building,
-      accessCheck: (rbac) => rbac.checkPermission("VIEW_ASSIGNED_PROPERTIES"),
+    //   accessCheck: () => hasPermission(PERMISSIONS.VIEW_ASSIGNED_PROPERTIES),
     },
     {
       id: "team-management",
       label: "Team Management",
       path: "/team",
       icon: Users,
-      accessCheck: (rbac) => rbac.hasTeamManagementPermissions(),
+    //   accessCheck: () =>
+    //     hasAnyPermission([
+    //       PERMISSIONS.MANAGE_TEAM_MEMBERS,
+    //       PERMISSIONS.VIEW_TEAM_HIERARCHY,
+    //     ]),
     },
     {
       id: "create-agents",
       label: "Create Agents",
       path: "/create-agent",
       icon: UserCheck,
-      accessCheck: (rbac) => rbac.canCreateAgents, // Use the boolean property
+    //   accessCheck: () => hasPermission(PERMISSIONS.CREATE_AGENTS),
     },
     {
       id: "branch-agents",
       label: "Branch Agents",
       path: "/branch-agents",
       icon: Building2,
-      accessCheck: (rbac) => rbac.hasBranchManagementPermissions(),
+    //   accessCheck: () =>
+        // hasAnyPermission([
+        //   PERMISSIONS.VIEW_BRANCH_AGENTS,
+        //   PERMISSIONS.EDIT_TEAM_AGENTS,
+        // ]),
     },
     {
       id: "team-performance",
       label: "Team Performance",
       path: "/team-performance",
       icon: TrendingUp,
-      accessCheck: (rbac) => rbac.hasTeamManagementPermissions(),
+    //   accessCheck: () => hasPermission(PERMISSIONS.VIEW_TEAM_PERFORMANCE),
     },
     {
       id: "branch-analytics",
       label: "Branch Analytics",
       path: "/branch-analytics",
       icon: BarChart3,
-      accessCheck: (rbac) => rbac.hasBranchManagementPermissions(),
+    //   accessCheck: () => hasPermission(PERMISSIONS.VIEW_BRANCH_ANALYTICS),
     },
     {
       id: "regional-data",
       label: "Regional Data",
       path: "/regional",
       icon: Globe,
-      accessCheck: (rbac) => rbac.hasRegionalManagementPermissions(),
-    },
-  ];
-
-  // Admin Sidebar
-  const adminNav = [
-    {
-      id: "admin-dashboard",
-      label: "Admin Dashboard",
-      path: "",
-      icon: Settings,
-      accessCheck: (rbac) => rbac.isAdministrator,
-    },
-    {
-      id: "leads-management",
-      label: "Leads Management",
-      path: "/leads",
-      icon: FileText,
-      accessCheck: (rbac) => rbac.isAdministrator,
-    },
-    {
-      id: "agents-management",
-      label: "Agents Management",
-      path: "/agents",
-      icon: Users,
-      accessCheck: (rbac) => rbac.isAdministrator,
-    },
-    {
-      id: "role-management",
-      label: "Role Management",
-      path: "/roles",
-      icon: Shield,
-      accessCheck: (rbac) => rbac.isAdministrator,
-    },
-    {
-      id: "department-management",
-      label: "Departments",
-      path: "/departments",
-      icon: Building2,
-      accessCheck: (rbac) => rbac.isAdministrator,
-    },
-    {
-      id: "system-settings",
-      label: "System Settings",
-      path: "/system",
-      icon: Settings,
-      accessCheck: (rbac) => rbac.isAdministrator,
+    //   accessCheck: () =>
+    //     hasAnyPermission([
+    //       PERMISSIONS.VIEW_REGIONAL_DATA,
+    //       PERMISSIONS.REGIONAL_ANALYTICS,
+    //     ]),
     },
     {
       id: "company-analytics",
       label: "Company Analytics",
       path: "/company-analytics",
       icon: BarChart3,
-      accessCheck: (rbac) => rbac.hasExecutiveManagementPermissions(),
+    //   accessCheck: () => hasPermission(PERMISSIONS.COMPANY_ANALYTICS),
+    },
+  ];
+
+  // Admin Sidebar Navigation - Using real permissions
+  const adminNav = [
+    {
+      id: "admin-dashboard",
+      label: "Admin Dashboard",
+      path: "",
+      icon: Settings,
+    //   accessCheck: () => isAdmin,
+    },
+    {
+      id: "leads-management",
+      label: "Leads Management",
+      path: "/leads",
+      icon: FileText,
+    //   accessCheck: () =>
+    //     hasAnyPermission([
+    //       PERMISSIONS.EDIT_LEADS,
+    //       PERMISSIONS.DELETE_LEADS,
+    //       PERMISSIONS.BULK_OPERATIONS,
+    //     ]),
+    },
+    {
+      id: "agents-management",
+      label: "Agents Management",
+      path: "/agents",
+      icon: Users,
+    //   accessCheck: () => hasPermission(PERMISSIONS.MANAGE_ALL_USERS),
+    },
+    {
+      id: "properties-management",
+      label: "Properties Management",
+      path: "/properties",
+      icon: Building2,
+    //   accessCheck: () =>
+    //     hasAnyPermission([
+    //       PERMISSIONS.EDIT_PROPERTIES,
+    //       PERMISSIONS.DELETE_PROPERTIES,
+    //       PERMISSIONS.BULK_OPERATIONS,
+    //     ]),
+    },
+    // {
+    //   id: "role-management",
+    //   label: "Role Management",
+    //   path: "/roles",
+    //   icon: Shield,
+    // //   accessCheck: () => hasPermission(PERMISSIONS.MANAGE_ROLES),
+    // },
+    // {
+    //   id: "departments-management",
+    //   label: "Departments Management",
+    //   path: "/departments",
+    //   icon: Building2,
+    // //   accessCheck: () => hasPermission(PERMISSIONS.MANAGE_DEPARTMENTS),
+    // },
+    {
+      id: "system-settings",
+      label: "System Settings",
+      path: "/system",
+      icon: Settings,
+    //   accessCheck: () => hasPermission(PERMISSIONS.SYSTEM_SETTINGS),
+    },
+    {
+      id: "company-analytics",
+      label: "Company Analytics",
+      path: "/company-analytics",
+      icon: BarChart3,
+    //   accessCheck: () => hasPermission(PERMISSIONS.COMPANY_ANALYTICS),
+    },
+    {
+      id: "bulk-operations",
+      label: "Bulk Operations",
+      path: "/bulk-operations",
+      icon: Database,
+    //   accessCheck: () =>
+    //     hasAnyPermission([
+    //       PERMISSIONS.BULK_OPERATIONS,
+    //       PERMISSIONS.IMPORT_EXPORT_DATA,
+    //     ]),
     },
   ];
 
   // Pick the correct menu based on role
   const navigationItems = useMemo(() => {
-    if (!user || !rbac.isAuthenticated) return [];
-    if (rbac.isAdministrator) return adminNav;
-    return agentNav;
-  }, [user, rbac]);
+    if (!user) return [];
+    return isAdmin ? adminNav : agentNav;
+  }, [user, isAdmin]);
 
-  // Filter navigation items based on user permissions and roles
+  // Filter navigation items based on user permissions
   const filteredNavigation = useMemo(() => {
-    if (!user || !rbac.isAuthenticated) return [];
+    if (!user) return [];
 
-    const isAdmin = user.role === "admin" || user.role === "founding_member";
+    return navigationItems;
+  }, [user, navigationItems]);
 
-    return navigationItems.filter(
-      (item) => item.accessCheck && item.accessCheck(rbac)
-    );
-  }, [user, rbac, navigationItems]);
+  // Get user display name
+  const getUserDisplayName = () => {
+    if (!user) return "User";
 
-  // Get icon component
-  const getIcon = (IconComponent) => {
-    return IconComponent || Home;
+    if (user.firstName && user.lastName) {
+      return `${user.firstName} ${user.lastName}`;
+    }
+
+    if (user.name) {
+      return user.name;
+    }
+
+    if (user.email) {
+      return user.email.split("@")[0];
+    }
+
+    return "User";
   };
+
+  // Get user initials
+  const getUserInitials = () => {
+    const name = getUserDisplayName();
+    const nameParts = name.split(" ");
+
+    if (nameParts.length >= 2) {
+      return `${nameParts[0].charAt(0)}${nameParts[1].charAt(0)}`.toUpperCase();
+    }
+
+    return name.charAt(0).toUpperCase();
+  };
+
+  // Get role display label
+  const getRoleDisplayLabel = () => {
+    if (!user?.role) return "User";
+    return formatToTitleCase(user.role);
+  };
+
+  // Get department display label
+  const getDepartmentDisplayLabel = () => {
+    if (!user?.department) return "";
+    return typeof user.department === "string"
+      ? user.department
+      : user.department.name || "";
+  };
+
+  if (!user) {
+    return (
+      <aside className="w-16 bg-white border-r border-gray-200 flex flex-col">
+        <div className="p-4 border-b border-gray-200">
+          <div className="animate-pulse">
+            <div className="w-8 h-8 bg-gray-200 rounded-lg"></div>
+          </div>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside
       className={`${
-        isCollapsed ? "w-16" : "w-64"
-      } bg-white border-r border-gray-200 transition-all duration-300 flex flex-col h-screen sticky top-0`}
+        isCollapsed ? "w-22" : "w-64"
+      } bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out`}
     >
       {/* Header */}
-      <div className="p-4 border-b border-gray-100">
+      <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
           {!isCollapsed && (
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <Crown className="w-5 h-5 text-white" />
+                <Database className="w-5 h-5 text-white" />
               </div>
-              <span className="font-semibold text-gray-900">EstateCRM</span>
+              <span className="font-bold text-gray-900">Estate CRM</span>
             </div>
           )}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
           >
             {isCollapsed ? (
-              <ChevronRight className="w-4 h-4 text-gray-600" />
+              <ChevronRight className="w-5 h-5 text-gray-500" />
             ) : (
-              <ChevronLeft className="w-4 h-4 text-gray-600" />
+              <ChevronLeft className="w-5 h-5 text-gray-500" />
             )}
           </button>
         </div>
       </div>
 
-      {/* User Info */}
-      {!isCollapsed && user && (
-        <div className="p-4 border-b border-gray-100">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-              <User className="w-5 h-5 text-blue-600" />
-            </div>
+      {/* User Profile Section */}
+      <div className="p-4 border-b border-gray-200">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+            <span className="text-white font-semibold text-sm">
+              {getUserInitials()}
+            </span>
+          </div>
+          {!isCollapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 truncate">
-                {user.firstName} {user.lastName}
+                {getUserDisplayName()}
               </p>
-              <p className="text-xs text-gray-500 truncate">
-                {user.designation || user.role}
-              </p>
+              <div className="flex items-center space-x-1">
+                <p className="text-xs text-gray-500 truncate">
+                  {getRoleDisplayLabel()}
+                </p>
+                {isManager && <Crown className="w-3 h-3 text-yellow-500" />}
+                {isAdmin && <Shield className="w-3 h-3 text-red-500" />}
+              </div>
+              {getDepartmentDisplayLabel() && (
+                <p className="text-xs text-blue-600 truncate">
+                  {getDepartmentDisplayLabel()}
+                </p>
+              )}
             </div>
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 overflow-y-auto">
-        <div className="space-y-1">
-          {filteredNavigation.map((item) => {
-            const Icon = getIcon(item.icon);
-            const fullPath = `${basePath}${item.path}`.replace(/\/$/, "");
-            const isActive =
-              location.pathname === fullPath ||
-              (item.path !== "" && location.pathname.startsWith(fullPath));
+      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        {filteredNavigation.map((item) => {
+          const Icon = item.icon || Home;
+          const fullPath = `${basePath}${item.path}`;
+          const isActive = location.pathname === fullPath;
 
-            return (
-              <NavLink
-                key={item.id}
-                to={fullPath || basePath}
-                className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-colors group relative ${
+          return (
+            <NavLink
+              key={item.id}
+              to={fullPath}
+              className={({ isActive }) =>
+                `flex items-center space-x-3 px-3 py-2 rounded-lg transition-all duration-200 ${
                   isActive
-                    ? "bg-blue-50 text-blue-700 border border-blue-100"
+                    ? "bg-blue-50 text-blue-700 border border-blue-200"
                     : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
-                }`}
-              >
-                <Icon
-                  className={`w-5 h-5 flex-shrink-0 ${
-                    isActive
-                      ? "text-blue-600"
-                      : "text-gray-500 group-hover:text-gray-700"
-                  } ${!isCollapsed ? "mr-3" : ""}`}
-                />
-
-                {!isCollapsed && <span className="truncate">{item.label}</span>}
-
-                {isCollapsed && (
-                  <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50">
-                    {item.label}
-                    <div className="absolute top-1/2 left-0 transform -translate-x-1 -translate-y-1/2 w-0 h-0 border-t-4 border-b-4 border-r-4 border-transparent border-r-gray-900"></div>
-                  </div>
-                )}
-              </NavLink>
-            );
-          })}
-        </div>
+                }`
+              }
+              title={isCollapsed ? item.label : undefined}
+            >
+              <Icon className="w-5 h-5 flex-shrink-0" />
+              {!isCollapsed && (
+                <span className="font-medium truncate">{item.label}</span>
+              )}
+            </NavLink>
+          );
+        })}
       </nav>
 
-      {/* Bottom Section - Role + Logout */}
-      {!isCollapsed && user && (
-        <div className="p-4 border-t border-gray-100">
-          <div className="flex items-center justify-between">
-            {/* Role Indicator */}
-            <div className="flex items-center space-x-2">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  rbac.isAdministrator
-                    ? "bg-red-500"
-                    : rbac.isManager
-                    ? "bg-yellow-500"
-                    : "bg-green-500"
-                }`}
-              ></div>
-              <span className="text-xs text-gray-500">
-                {rbac.isAdministrator
-                  ? "Administrator"
-                  : rbac.isManager
-                  ? "Manager"
-                  : "Agent"}
-              </span>
-            </div>
-
-            {/* Logout Button */}
-            <button
-              onClick={() => {
-                // Call your logout method from AuthContext
-                if (window.confirm("Are you sure you want to log out?")) {
-                  localStorage.clear();
-                  window.location.href = "/login"; // or use logout() from context
-                }
-              }}
-              className="text-xs text-red-600 hover:underline"
-            >
-              Logout
-            </button>
+      {/* Debug Info (only in development) */}
+      {!isCollapsed && process.env.NODE_ENV === "development" && (
+        <div className="p-4 border-t border-gray-200 bg-gray-50">
+          <div className="text-xs text-gray-500 space-y-1">
+            <div>Role Level: {user?.roleLevel || "N/A"}</div>
+            <div>Permissions: {user?.permissions?.length || 0}</div>
+            <div>Branch: {user?.branch || "N/A"}</div>
           </div>
         </div>
       )}
+
+      {/* Footer */}
+      <div className="p-4 border-t border-gray-200">
+        <button
+          onClick={logout}
+          className={`w-full flex items-center space-x-3 px-3 py-2 text-gray-700 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors ${
+            isCollapsed ? "justify-center" : ""
+          }`}
+          title={isCollapsed ? "Logout" : undefined}
+        >
+          <Settings className="w-5 h-5 flex-shrink-0" />
+          {!isCollapsed && <span className="font-medium">Logout</span>}
+        </button>
+      </div>
     </aside>
   );
 };

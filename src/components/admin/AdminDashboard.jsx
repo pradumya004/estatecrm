@@ -473,8 +473,10 @@ const AdminDashboard = () => {
         {/* <Route path="agents/:id" element={< />} /> */}
 
         {/* Property Management Routes */}
-        <Route path="properties/*" element={<PropertiesList />} />
-        {/* Add other admin-specific routes here */}
+        <Route path="properties/" element={<PropertiesList />} />
+        <Route path="properties/new" element={<PropertyForm />} />
+
+        <Route path="company-analytics" element={<Analytics />} />
       </Routes>
     </div>
   );

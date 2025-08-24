@@ -1,4 +1,5 @@
 // estatecrm/src/components/admin/RoleManagement.jsx
+// UPDATED: Uses real user data and permissions from database
 
 import React, { useState, useEffect } from "react";
 import {
@@ -10,16 +11,26 @@ import {
   X,
   Search,
   AlertCircle,
+  Users,
+  Key,
+  Crown,
+  CheckCircle,
+  Circle,
 } from "lucide-react";
 import { AdminGate } from "../common/PermissionGate";
+import { useAuth } from "../../hooks/useAuth";
 import { adminAPI } from "../../services/api";
 import {
-  PERMISSION_GROUPS,
-  getPermissionLabel,
+  PERMISSIONS,
+  ROLE_LABELS,
+  getRoleLevel,
+  getRoleLabel,
+  canManageRole,
 } from "../../utils/rbacConstants";
-import { formatToTitleCase } from "../../utils/formatters.js";
+import { formatToTitleCase } from "../../utils/formatters";
 
 const RoleManagement = () => {
+  const { user, isAdmin, roleLevel } = useAuth();
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -47,8 +58,8 @@ const RoleManagement = () => {
   const handleCreateRole = () => {
     setEditingRole({
       name: "",
-      level: "",
       description: "",
+      level: 1,
       permissions: [],
     });
     setShowCreateModal(true);
@@ -61,8 +72,13 @@ const RoleManagement = () => {
 
   const handleSaveRole = async () => {
     try {
-      if (!editingRole.name.trim() || !editingRole.level) {
-        alert("Role name and level is required");
+      if (!editingRole.name.trim()) {
+        alert("Role name is required");
+        return;
+      }
+
+      if (!editingRole.description?.trim()) {
+        alert("Role description is required");
         return;
       }
 
@@ -73,16 +89,14 @@ const RoleManagement = () => {
 
       const roleData = {
         name: editingRole.name.trim(),
-        level: Number(editingRole.level),
         description: editingRole.description.trim(),
+        level: editingRole.level,
         permissions: editingRole.permissions,
       };
 
       if (editingRole._id) {
-        // Update existing role
         await adminAPI.updateRole(editingRole._id, roleData);
       } else {
-        // Create new role
         await adminAPI.createRole(roleData);
       }
 
@@ -121,26 +135,20 @@ const RoleManagement = () => {
     }));
   };
 
-  const togglePermissionGroup = (groupPermissions) => {
-    const allSelected = groupPermissions.every((p) =>
-      editingRole.permissions.includes(p)
-    );
-
-    setEditingRole((prev) => ({
-      ...prev,
-      permissions: allSelected
-        ? prev.permissions.filter((p) => !groupPermissions.includes(p))
-        : [...new Set([...prev.permissions, ...groupPermissions])],
-    }));
-  };
-
   const filteredRoles = roles.filter(
     (role) =>
       role.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       role.description?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const permissionGroupsArray = Object.entries(PERMISSION_GROUPS);
+  // Get all permissions as array
+  const allPermissions = Object.values(PERMISSIONS);
+
+  // Check if current user can manage target role
+  const userCanManageRole = (targetRole) => {
+    if (!user || !targetRole) return false;
+    return canManageRole(user.role, targetRole.name);
+  };
 
   if (loading) {
     return (
@@ -180,7 +188,7 @@ const RoleManagement = () => {
           </button>
         </div>
 
-        {/* Search and Filter */}
+        {/* Search */}
         <div className="flex items-center space-x-4">
           <div className="relative flex-1">
             <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -197,9 +205,9 @@ const RoleManagement = () => {
           </div>
         </div>
 
-        {/* Roles List */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full">
+        {/* Roles Table */}
+        <div className="bg-white rounded-lg border overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -209,12 +217,9 @@ const RoleManagement = () => {
                   Level
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Description
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Permissions
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -224,23 +229,28 @@ const RoleManagement = () => {
                 <tr key={role._id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      <Shield className="w-5 h-5 text-blue-500 mr-3" />
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">
+                      <div className="flex-shrink-0">
+                        <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                          <Shield className="w-5 h-5 text-blue-600" />
+                        </div>
+                      </div>
+                      <div className="ml-4">
+                        <div className="text-sm font-medium text-gray-900 flex items-center">
                           {formatToTitleCase(role.name)}
+                          {role.level >= 10 && (
+                            <Crown className="w-4 h-4 text-yellow-500 ml-2" />
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {role.description}
                         </div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">
-                      {role.level || "N/A"}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">
-                      {role.description || "N/A"}
-                    </div>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                      Level {role.level}
+                    </span>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-1">
@@ -249,7 +259,7 @@ const RoleManagement = () => {
                           key={permission}
                           className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
                         >
-                          {getPermissionLabel(permission)}
+                          {formatToTitleCase(permission)}
                         </span>
                       ))}
                       {role.permissions?.length > 3 && (
@@ -261,18 +271,26 @@ const RoleManagement = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleEditRole(role)}
-                        className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirm(role)}
-                        className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {userCanManageRole(role) ? (
+                        <>
+                          <button
+                            onClick={() => handleEditRole(role)}
+                            className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(role)}
+                            className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-gray-400 text-xs">
+                          Cannot manage
+                        </span>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -315,7 +333,7 @@ const RoleManagement = () => {
 
               <div className="p-6 space-y-6">
                 {/* Basic Information */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Role Name *
@@ -333,31 +351,31 @@ const RoleManagement = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
-                  <div className="md:col-span-1">
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Role Level *
+                      Hierarchy Level *
                     </label>
                     <input
                       type="number"
+                      min="1"
+                      max="13"
                       value={editingRole.level}
                       onChange={(e) =>
                         setEditingRole((prev) => ({
                           ...prev,
-                          level: e.target.value,
+                          level: parseInt(e.target.value) || 1,
                         }))
                       }
-                      placeholder="e.g., 4"
-                      className="w-full px-3 py-2 border rounded-lg"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Description
+                    Description *
                   </label>
-                  <input
-                    type="text"
+                  <textarea
                     value={editingRole.description}
                     onChange={(e) =>
                       setEditingRole((prev) => ({
@@ -365,98 +383,72 @@ const RoleManagement = () => {
                         description: e.target.value,
                       }))
                     }
-                    placeholder="Enter role description"
+                    placeholder="Describe this role's responsibilities"
+                    rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
 
-                {/* Permissions */}
+                {/* Permission Selection */}
                 <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">
-                    Permissions
-                  </h3>
-                  <div className="space-y-4">
-                    {permissionGroupsArray.map(
-                      ([groupName, groupPermissions]) => {
-                        const allSelected = groupPermissions.every((p) =>
-                          editingRole.permissions.includes(p)
-                        );
-                        const someSelected = groupPermissions.some((p) =>
-                          editingRole.permissions.includes(p)
-                        );
-
-                        return (
-                          <div
-                            key={groupName}
-                            className="border border-gray-200 rounded-lg p-4"
-                          >
-                            <div className="flex items-center justify-between mb-3">
-                              <h4 className="font-medium text-gray-900">
-                                {groupName.replace(/_/g, " ").toUpperCase()}
-                              </h4>
-                              <button
-                                onClick={() =>
-                                  togglePermissionGroup(groupPermissions)
-                                }
-                                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                                  allSelected
-                                    ? "bg-red-100 text-red-700 hover:bg-red-200"
-                                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                }`}
-                              >
-                                {allSelected ? "Deselect All" : "Select All"}
-                              </button>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                              {groupPermissions.map((permission) => (
-                                <label
-                                  key={permission}
-                                  className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={editingRole.permissions.includes(
-                                      permission
-                                    )}
-                                    onChange={() =>
-                                      togglePermission(permission)
-                                    }
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                  />
-                                  <span className="text-sm text-gray-700">
-                                    {getPermissionLabel(permission)}
-                                  </span>
-                                </label>
-                              ))}
-                            </div>
+                  <label className="block text-sm font-medium text-gray-700 mb-4">
+                    Permissions * ({editingRole.permissions.length} selected)
+                  </label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-4">
+                    {allPermissions.map((permission) => {
+                      const isSelected =
+                        editingRole.permissions.includes(permission);
+                      return (
+                        <label
+                          key={permission}
+                          className="flex items-center cursor-pointer hover:bg-gray-50 p-2 rounded"
+                        >
+                          <div className="flex items-center">
+                            {isSelected ? (
+                              <CheckCircle className="w-4 h-4 text-blue-600" />
+                            ) : (
+                              <Circle className="w-4 h-4 text-gray-400" />
+                            )}
+                            <span className="ml-3 text-sm text-gray-700">
+                              {formatToTitleCase(permission)}
+                            </span>
                           </div>
-                        );
-                      }
-                    )}
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => togglePermission(permission)}
+                            className="sr-only"
+                          />
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 
                 {/* Selected Permissions Summary */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="font-medium text-blue-900 mb-2">
-                    Selected Permissions ({editingRole.permissions.length})
-                  </h4>
-                  <div className="flex flex-wrap gap-1">
-                    {editingRole.permissions.map((permission) => (
-                      <span
-                        key={permission}
-                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
-                      >
-                        {getPermissionLabel(permission)}
-                      </span>
-                    ))}
-                    {editingRole.permissions.length === 0 && (
-                      <span className="text-sm text-blue-600">
-                        No permissions selected
-                      </span>
-                    )}
+                {editingRole.permissions.length > 0 && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-blue-900 mb-2">
+                      Selected Permissions ({editingRole.permissions.length})
+                    </h4>
+                    <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                      {editingRole.permissions.map((permission) => (
+                        <span
+                          key={permission}
+                          className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                        >
+                          {formatToTitleCase(permission)}
+                          <button
+                            onClick={() => togglePermission(permission)}
+                            className="ml-1 text-blue-600 hover:text-blue-800"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               <div className="p-6 border-t border-gray-200 flex justify-end space-x-3">
@@ -483,15 +475,22 @@ const RoleManagement = () => {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg max-w-md w-full p-6">
               <div className="flex items-center space-x-3 mb-4">
-                <AlertCircle className="w-6 h-6 text-red-600" />
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Delete Role
-                </h3>
+                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                  <AlertCircle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">
+                    Delete Role
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    Are you sure you want to delete "
+                    {formatToTitleCase(deleteConfirm.name)}"?
+                  </p>
+                </div>
               </div>
-              <p className="text-gray-600 mb-6">
-                Are you sure you want to delete the role "{deleteConfirm.name}"?
-                This action cannot be undone and may affect agents with this
-                role.
+              <p className="text-sm text-gray-600 mb-6">
+                This action cannot be undone and may affect users assigned to
+                this role.
               </p>
               <div className="flex justify-end space-x-3">
                 <button

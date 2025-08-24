@@ -1,4 +1,6 @@
-// src/components/admin/DepartmentManagement.jsx
+// estatecrm/src/components/admin/DepartmentManagement.jsx
+// UPDATED: Uses real user data and permissions from database
+
 import React, { useState, useEffect } from "react";
 import {
   Building2,
@@ -15,13 +17,13 @@ import {
   Tag,
 } from "lucide-react";
 import { AdminGate } from "../common/PermissionGate";
+import { useAuth } from "../../hooks/useAuth";
 import { adminAPI } from "../../services/api";
-import {
-  DEPARTMENTS,
-  DESIGNATIONS_BY_DEPARTMENT,
-} from "../../utils/rbacConstants";
+import { PERMISSIONS } from "../../utils/rbacConstants";
+import { formatToTitleCase } from "../../utils/formatters";
 
 const DepartmentManagement = () => {
+  const { user, hasPermission } = useAuth();
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -77,10 +79,8 @@ const DepartmentManagement = () => {
       };
 
       if (editingDepartment._id) {
-        // Update existing department
         await adminAPI.updateDepartment(editingDepartment._id, departmentData);
       } else {
-        // Create new department
         await adminAPI.createDepartment(departmentData);
       }
 
@@ -131,17 +131,6 @@ const DepartmentManagement = () => {
     }));
   };
 
-  const addPredefinedDesignations = (departmentName) => {
-    const predefinedDesignations =
-      DESIGNATIONS_BY_DEPARTMENT[departmentName] || [];
-    setEditingDepartment((prev) => ({
-      ...prev,
-      designations: [
-        ...new Set([...prev.designations, ...predefinedDesignations]),
-      ],
-    }));
-  };
-
   const filteredDepartments = departments.filter(
     (dept) =>
       dept.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -149,6 +138,9 @@ const DepartmentManagement = () => {
         d.toLowerCase().includes(searchTerm.toLowerCase())
       )
   );
+
+  // Check if user can manage departments
+  const canManageDepartments = hasPermission(PERMISSIONS.MANAGE_DEPARTMENTS);
 
   if (loading) {
     return (
@@ -181,13 +173,15 @@ const DepartmentManagement = () => {
               </p>
             </div>
           </div>
-          <button
-            onClick={handleCreateDepartment}
-            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Department</span>
-          </button>
+          {canManageDepartments && (
+            <button
+              onClick={handleCreateDepartment}
+              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Department</span>
+            </button>
+          )}
         </div>
 
         {/* Search */}
@@ -218,23 +212,25 @@ const DepartmentManagement = () => {
                 <div className="flex items-center space-x-3">
                   <Building2 className="w-6 h-6 text-green-600" />
                   <h3 className="text-lg font-semibold text-gray-900">
-                    {department.name}
+                    {formatToTitleCase(department.name)}
                   </h3>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => handleEditDepartment(department)}
-                    className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setDeleteConfirm(department)}
-                    className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+                {canManageDepartments && (
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => handleEditDepartment(department)}
+                      className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirm(department)}
+                      className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -257,7 +253,7 @@ const DepartmentManagement = () => {
                           key={index}
                           className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"
                         >
-                          {designation}
+                          {formatToTitleCase(designation)}
                         </span>
                       ))}
                     {department.designations?.length > 4 && (
@@ -287,7 +283,7 @@ const DepartmentManagement = () => {
         )}
 
         {/* Create/Edit Modal */}
-        {showCreateModal && editingDepartment && (
+        {showCreateModal && editingDepartment && canManageDepartments && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6 border-b border-gray-200">
@@ -325,36 +321,6 @@ const DepartmentManagement = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   />
                 </div>
-
-                {/* Predefined Departments Helper */}
-                {!editingDepartment._id && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <h4 className="font-medium text-blue-900 mb-2">
-                      Quick Setup
-                    </h4>
-                    <p className="text-sm text-blue-700 mb-3">
-                      Select a predefined department to auto-populate
-                      designations:
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {DEPARTMENTS.map((dept) => (
-                        <button
-                          key={dept}
-                          onClick={() => {
-                            setEditingDepartment((prev) => ({
-                              ...prev,
-                              name: dept,
-                            }));
-                            addPredefinedDesignations(dept);
-                          }}
-                          className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                        >
-                          {dept}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {/* Designations */}
                 <div>
@@ -428,7 +394,7 @@ const DepartmentManagement = () => {
                             key={index}
                             className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"
                           >
-                            {designation}
+                            {formatToTitleCase(designation)}
                           </span>
                         ))}
                     </div>
@@ -460,7 +426,7 @@ const DepartmentManagement = () => {
         )}
 
         {/* Delete Confirmation Modal */}
-        {deleteConfirm && (
+        {deleteConfirm && canManageDepartments && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg max-w-md w-full p-6">
               <div className="flex items-center space-x-3 mb-4">
@@ -470,9 +436,9 @@ const DepartmentManagement = () => {
                 </h3>
               </div>
               <p className="text-gray-600 mb-6">
-                Are you sure you want to delete the "{deleteConfirm.name}"
-                department? This action cannot be undone and may affect agents
-                in this department.
+                Are you sure you want to delete the "
+                {formatToTitleCase(deleteConfirm.name)}" department? This action
+                cannot be undone and may affect agents in this department.
               </p>
               <div className="flex justify-end space-x-3">
                 <button
