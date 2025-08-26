@@ -32,6 +32,7 @@ import {
 import agentService from "../../services/agent.service.js";
 import { adminAPI } from "../../services/api.js";
 import { formatToTitleCase } from "../../utils/formatters.js";
+import { useRBAC } from "../../hooks/useRBAC.js";
 
 // --- HELPER COMPONENTS ---
 
@@ -126,7 +127,8 @@ const AgentForm = () => {
   const { agentId } = useParams();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
-  const { user, rbac } = useAuth();
+  const { user } = useAuth();
+  const rbac = useRBAC(user);
   const isEditing = !!agentId;
 
   const [formData, setFormData] = useState({
@@ -186,6 +188,8 @@ const AgentForm = () => {
           adminAPI.getAllDepartments(),
           agentService.getAgents({ limit: 200 }),
         ]);
+        console.log("UI data fetched:", rolesRes, deptsRes, managersRes);
+
         setAllRoles(rolesRes.data.roles || []);
         setAllDepartments(deptsRes.data.departments || []);
         setAvailableManagers(managersRes.agents || []);
@@ -268,8 +272,12 @@ const AgentForm = () => {
 
   // Filter roles that the current user is allowed to assign
   const assignableRoles = useMemo(() => {
+    // console.log("All roles:", allRoles);
+
     if (!user || !Array.isArray(allRoles) || !rbac) return [];
-    const assignableRoleNames = rbac.getAssignableRolesList();
+    const assignableRoleNames = rbac.getAssignableRolesList(allRoles);
+    // console.log("Assignable roles:", assignableRoleNames);
+
     return allRoles
       .filter((role) => assignableRoleNames.includes(role.name))
       .map((role) => ({
@@ -277,6 +285,14 @@ const AgentForm = () => {
         name: formatToTitleCase(role.name),
       }));
   }, [allRoles, rbac, user]);
+
+  // Departments Formatted
+  const formattedDepartments = useMemo(() => {
+    return allDepartments.map((department) => ({
+      ...department,
+      name: formatToTitleCase(department.name),
+    }));
+  });
 
   // Get the list of designations for the currently selected department
   const designationsForSelectedDept = useMemo(() => {
@@ -412,6 +428,11 @@ const AgentForm = () => {
       setLoading((prev) => ({ ...prev, submit: false }));
     }
   };
+
+  //   console.log("Agent Form UI Data:");
+  console.log("Assignable Roles:", assignableRoles);
+  //   console.log("All Departments:", allDepartments);
+  //   console.log("Available Managers:", availableManagers);
 
   if (loading.form || loading.uiData) {
     return <div>Loading Form...</div>;
@@ -577,7 +598,7 @@ const AgentForm = () => {
                 value={formData.department}
                 onChange={handleInputChange}
                 error={errors.department}
-                options={allDepartments}
+                options={formattedDepartments}
                 optionValueKey="_id"
                 optionLabelKey="name"
                 required

@@ -1,8 +1,8 @@
 // estatecrm/src/components/agent/AssignedProperties.jsx
-// UPDATED: Uses real user data, permissions, and follows hierarchy
+// UPDATED: Scope-based property management with hierarchy support
 
-import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect, useCallback } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Search,
   Filter,
@@ -40,6 +40,13 @@ import {
   Globe,
   RefreshCw,
   Plus,
+  User,
+  Map,
+  Shield,
+  BarChart3,
+  Settings,
+  Upload,
+  Download,
 } from "lucide-react";
 import { agentsAPI, propertiesAPI } from "../../services/api";
 import { useAuth } from "../../hooks/useAuth";
@@ -47,11 +54,46 @@ import { PERMISSIONS } from "../../utils/rbacConstants";
 import { formatToTitleCase } from "../../utils/formatters";
 
 const AssignedProperties = () => {
-  const { user, hasPermission, isManager, roleLevel } = useAuth();
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
+  // Direct permission checks from database
+  const userPermissions = user?.permissions || [];
+  const canViewProperties = userPermissions.includes(
+    PERMISSIONS.VIEW_ASSIGNED_PROPERTIES
+  );
+  const canManageProperties = userPermissions.includes(
+    PERMISSIONS.MANAGE_BRANCH_PROPERTIES
+  );
+  const canCreateProperties = userPermissions.includes(
+    PERMISSIONS.MANAGE_BRANCH_PROPERTIES
+  );
+  const canEditProperties = userPermissions.includes(
+    PERMISSIONS.EDIT_PROPERTY_DETAILS
+  );
+  const canViewTeamProperties = userPermissions.includes(
+    PERMISSIONS.VIEW_TEAM_PROPERTIES
+  );
+  const canViewBranchData = userPermissions.includes(
+    PERMISSIONS.VIEW_BRANCH_AGENTS
+  );
+  const canViewAnalytics = userPermissions.some((p) =>
+    [
+      PERMISSIONS.VIEW_BRANCH_ANALYTICS,
+      PERMISSIONS.VIEW_TEAM_PERFORMANCE,
+    ].includes(p)
+  );
+  const canBulkOperations = userPermissions.includes(
+    PERMISSIONS.BULK_OPERATIONS
+  );
+
+  // State
   const [properties, setProperties] = useState([]);
-  const [filteredProperties, setFilteredProperties] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
+  const [activeScope, setActiveScope] = useState("own");
+  const [availableScopes, setAvailableScopes] = useState([]);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedType, setSelectedType] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
@@ -59,79 +101,81 @@ const AssignedProperties = () => {
   const [sortBy, setSortBy] = useState("createdAt");
   const [sortOrder, setSortOrder] = useState("desc");
   const [viewMode, setViewMode] = useState("grid");
-  const [propertyStats, setPropertyStats] = useState({
+
+  const [propertyStats, setPropertyStats] = useState({});
+  const [teamStats, setTeamStats] = useState(null);
+
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 20,
     total: 0,
-    available: 0,
-    sold: 0,
-    rented: 0,
-    totalValue: 0,
-    thisWeek: 0,
+    totalPages: 0,
   });
 
-  // Permission checks
-  const canViewProperties = hasPermission(PERMISSIONS.VIEW_ASSIGNED_PROPERTIES);
-  const canManageProperties = hasPermission(
-    PERMISSIONS.MANAGE_BRANCH_PROPERTIES
-  );
-  const canCreateProperties = hasPermission(
-    PERMISSIONS.MANAGE_BRANCH_PROPERTIES
+  // Fetch properties with scope
+  const fetchAssignedProperties = useCallback(
+    async (scope = activeScope) => {
+      try {
+        setLoading(true);
+        const params = {
+          scope,
+          status: selectedStatus !== "all" ? selectedStatus : undefined,
+          type: selectedType !== "all" ? selectedType : undefined,
+          category: selectedCategory !== "all" ? selectedCategory : undefined,
+          page: pagination.page,
+          limit: pagination.limit,
+          includeStats: true,
+          includePermissions: true,
+        };
+
+        const response = await agentsAPI.getAssignedProperties(params);
+
+        setProperties(response.data.properties || []);
+        setPropertyStats(response.data.summary || {});
+        setTeamStats(response.data.teamSummary || null);
+        setAvailableScopes(response.data.availableScopes || []);
+
+        if (response.data.totalPages) {
+          setPagination((prev) => ({
+            ...prev,
+            total: response.data.total || 0,
+            totalPages: response.data.totalPages,
+          }));
+        }
+      } catch (error) {
+        console.error("Error fetching assigned properties:", error);
+        setProperties([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      activeScope,
+      selectedStatus,
+      selectedType,
+      selectedCategory,
+      pagination.page,
+      pagination.limit,
+    ]
   );
 
   useEffect(() => {
     if (canViewProperties) {
       fetchAssignedProperties();
     }
-  }, [canViewProperties]);
+  }, [fetchAssignedProperties, canViewProperties]);
 
-  useEffect(() => {
-    filterAndSortProperties();
-  }, [
-    properties,
-    searchQuery,
-    selectedType,
-    selectedStatus,
-    selectedCategory,
-    sortBy,
-    sortOrder,
-  ]);
-
-  useEffect(() => {
-    calculateStats();
-  }, [properties]);
-
-  const fetchAssignedProperties = async () => {
-    try {
-      setLoading(true);
-      const response = await agentsAPI.getAssignedProperties({
-        includeStats: true,
-        includePermissions: true,
-      });
-
-      console.log("Properties response:", response);
-
-      setProperties(response.data?.properties || []);
-      setPropertyStats(
-        response.data?.stats || {
-          total: 0,
-          available: 0,
-          sold: 0,
-          rented: 0,
-          totalValue: 0,
-          thisWeek: 0,
-        }
-      );
-    } catch (error) {
-      console.error("Error fetching assigned properties:", error);
-      setProperties([]);
-    } finally {
-      setLoading(false);
-    }
+  // Handle scope change
+  const handleScopeChange = (newScope) => {
+    setActiveScope(newScope);
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    fetchAssignedProperties(newScope);
   };
 
-  const filterAndSortProperties = () => {
+  // Client-side filtering and sorting
+  const getFilteredAndSortedProperties = () => {
     let filtered = [...properties];
 
-    // Search filter
     if (searchQuery) {
       filtered = filtered.filter(
         (property) =>
@@ -141,31 +185,12 @@ const AssignedProperties = () => {
             .includes(searchQuery.toLowerCase()) ||
           property.address?.city
             ?.toLowerCase()
-            .includes(searchQuery.toLowerCase())
+            .includes(searchQuery.toLowerCase()) ||
+          property.propertyId?.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
 
-    // Type filter
-    if (selectedType !== "all") {
-      filtered = filtered.filter((property) => property.type === selectedType);
-    }
-
-    // Status filter
-    if (selectedStatus !== "all") {
-      filtered = filtered.filter(
-        (property) => property.status === selectedStatus
-      );
-    }
-
-    // Category filter
-    if (selectedCategory !== "all") {
-      filtered = filtered.filter(
-        (property) => property.category === selectedCategory
-      );
-    }
-
-    // Sort
-    filtered.sort((a, b) => {
+    return filtered.sort((a, b) => {
       let aValue = a[sortBy];
       let bValue = b[sortBy];
 
@@ -173,42 +198,35 @@ const AssignedProperties = () => {
         aValue = a.pricing?.amount || 0;
         bValue = b.pricing?.amount || 0;
       } else if (sortBy === "createdAt") {
-        aValue = new Date(aValue);
-        bValue = new Date(bValue);
+        aValue = new Date(aValue || 0);
+        bValue = new Date(bValue || 0);
       }
 
-      if (sortOrder === "asc") {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
+      return sortOrder === "asc"
+        ? aValue > bValue
+          ? 1
+          : -1
+        : aValue < bValue
+        ? 1
+        : -1;
     });
-
-    setFilteredProperties(filtered);
   };
 
-  const calculateStats = () => {
-    const stats = properties.reduce(
-      (acc, property) => {
-        acc.total++;
-        if (property.status === "available") acc.available++;
-        if (property.status === "sold") acc.sold++;
-        if (property.status === "rented") acc.rented++;
-        acc.totalValue += property.pricing?.amount || 0;
+  const filteredProperties = getFilteredAndSortedProperties();
 
-        const createdDate = new Date(property.createdAt);
-        const weekAgo = new Date();
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        if (createdDate > weekAgo) acc.thisWeek++;
-
-        return acc;
-      },
-      { total: 0, available: 0, sold: 0, rented: 0, totalValue: 0, thisWeek: 0 }
-    );
-
-    setPropertyStats((prev) => ({ ...prev, ...stats }));
+  // Get scope icon
+  const getScopeIcon = (scope) => {
+    const icons = {
+      own: User,
+      team: Users,
+      branch: Building,
+      region: Map,
+      all: Globe,
+    };
+    return icons[scope] || User;
   };
 
+  // Utility functions
   const getStatusColor = (status) => {
     const colors = {
       available: "bg-green-100 text-green-800 border-green-200",
@@ -234,8 +252,7 @@ const AssignedProperties = () => {
     }
   };
 
-  console.log("filteredProperties:", filteredProperties);
-
+  // UI Components
   const StatCard = ({
     title,
     value,
@@ -245,7 +262,7 @@ const AssignedProperties = () => {
     trend,
     suffix = "",
   }) => (
-    <div className="bg-white rounded-xl p-6 border border-gray-100 hover:shadow-lg transition-all duration-300 group">
+    <div className="bg-white rounded-lg p-4 border hover:shadow-md transition-all duration-300">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium text-gray-600">{title}</p>
@@ -259,25 +276,41 @@ const AssignedProperties = () => {
                 trend === "up" ? "text-green-600" : "text-red-600"
               }`}
             >
-              <ArrowUpRight className="w-4 h-4 mr-1" />+{change}% this week
+              <ArrowUpRight className="w-4 h-4 mr-1" />
+              {change}% this week
             </p>
           )}
         </div>
-        <div
-          className={`p-3 rounded-xl ${color} group-hover:scale-110 transition-transform duration-300`}
-        >
-          <Icon className="w-6 h-6 text-white" />
+        <div className={`p-3 rounded-lg ${color}`}>
+          <Icon className="w-5 h-5 text-white" />
         </div>
       </div>
     </div>
   );
+
+  const ScopeTab = ({ scope, isActive, onClick }) => {
+    const IconComponent = getScopeIcon(scope.key);
+    return (
+      <button
+        onClick={() => onClick(scope.key)}
+        className={`flex items-center px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+          isActive
+            ? "bg-blue-600 text-white shadow-md"
+            : "text-gray-600 hover:text-blue-600 hover:bg-blue-50"
+        }`}
+      >
+        <IconComponent className="w-4 h-4 mr-2" />
+        {scope.label}
+      </button>
+    );
+  };
 
   const PropertyCard = ({ property }) => {
     const mainImage =
       property.images?.find((img) => img.isMain) || property.images?.[0];
 
     return (
-      <div className="bg-white rounded-xl overflow-hidden border border-gray-100 hover:shadow-lg transition-all duration-300 group">
+      <div className="bg-white rounded-lg overflow-hidden border hover:shadow-lg transition-all duration-300 group">
         {/* Image */}
         <div className="relative">
           {mainImage ? (
@@ -317,7 +350,7 @@ const AssignedProperties = () => {
             </button>
           </div>
 
-          {/* Views and Inquiries */}
+          {/* Property metrics */}
           <div className="absolute bottom-3 left-3 flex items-center space-x-3">
             <div className="flex items-center space-x-1 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
               <Eye className="w-3 h-3" />
@@ -331,7 +364,7 @@ const AssignedProperties = () => {
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="p-4">
           {/* Header */}
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1">
@@ -345,6 +378,20 @@ const AssignedProperties = () => {
               </p>
             </div>
           </div>
+
+          {/* Assigned agents - Only for non-own scope */}
+          {activeScope !== "own" &&
+            property.assignedAgents &&
+            property.assignedAgents.length > 0 && (
+              <div className="mb-3 text-xs text-gray-500">
+                <p>Assigned to:</p>
+                <p className="font-medium">
+                  {property.assignedAgents
+                    .map((agent) => `${agent.firstName} ${agent.lastName}`)
+                    .join(", ")}
+                </p>
+              </div>
+            )}
 
           {/* Location */}
           <div className="flex items-center text-sm text-gray-600 mb-3">
@@ -383,27 +430,6 @@ const AssignedProperties = () => {
             )}
           </div>
 
-          {/* Amenities */}
-          {property.amenities && property.amenities.length > 0 && (
-            <div className="mb-4">
-              <div className="flex flex-wrap gap-1">
-                {property.amenities.slice(0, 3).map((amenity, index) => (
-                  <span
-                    key={index}
-                    className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded"
-                  >
-                    {amenity}
-                  </span>
-                ))}
-                {property.amenities.length > 3 && (
-                  <span className="text-xs text-blue-600">
-                    +{property.amenities.length - 3} more
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Price and Actions */}
           <div className="flex items-center justify-between pt-4 border-t border-gray-100">
             <div>
@@ -415,21 +441,25 @@ const AssignedProperties = () => {
               )}
             </div>
 
-            <div className="flex items-center space-x-1">
-              <button className="p-2 hover:bg-blue-50 rounded-lg text-blue-600 transition-colors">
-                <Phone className="w-4 h-4" />
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => navigate(`/agent/properties/${property._id}`)}
+                className="flex items-center px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"
+              >
+                <Eye className="w-4 h-4 mr-1" />
+                View
               </button>
-              <button className="p-2 hover:bg-green-50 rounded-lg text-green-600 transition-colors">
-                <Mail className="w-4 h-4" />
-              </button>
-              {property.virtualTour && (
-                <button className="p-2 hover:bg-purple-50 rounded-lg text-purple-600 transition-colors">
-                  <Video className="w-4 h-4" />
+              {canEditProperties && (
+                <button
+                  onClick={() =>
+                    navigate(`/agent/properties/${property._id}/edit`)
+                  }
+                  className="flex items-center px-3 py-1.5 text-sm bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"
+                >
+                  <Edit className="w-4 h-4 mr-1" />
+                  Edit
                 </button>
               )}
-              <button className="p-2 hover:bg-gray-50 rounded-lg text-gray-600 transition-colors">
-                <Eye className="w-4 h-4" />
-              </button>
             </div>
           </div>
 
@@ -450,7 +480,7 @@ const AssignedProperties = () => {
       property.images?.find((img) => img.isMain) || property.images?.[0];
 
     return (
-      <div className="bg-white rounded-xl p-6 border border-gray-100 hover:shadow-lg transition-all duration-300">
+      <div className="bg-white rounded-lg p-4 border hover:shadow-lg transition-all duration-300">
         <div className="flex items-center space-x-4">
           {/* Image */}
           <div className="flex-shrink-0">
@@ -458,11 +488,11 @@ const AssignedProperties = () => {
               <img
                 src={mainImage.url}
                 alt={property.title}
-                className="w-24 h-24 object-cover rounded-lg"
+                className="w-20 h-20 object-cover rounded-lg"
               />
             ) : (
-              <div className="w-24 h-24 bg-gray-100 rounded-lg flex items-center justify-center">
-                <Home className="w-8 h-8 text-gray-400" />
+              <div className="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center">
+                <Home className="w-6 h-6 text-gray-400" />
               </div>
             )}
           </div>
@@ -477,6 +507,18 @@ const AssignedProperties = () => {
                 <p className="text-sm text-gray-600 mt-1">
                   {property.address?.area}, {property.address?.city}
                 </p>
+
+                {/* Assigned agents - Only for non-own scope */}
+                {activeScope !== "own" &&
+                  property.assignedAgents &&
+                  property.assignedAgents.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Assigned:{" "}
+                      {property.assignedAgents
+                        .map((agent) => `${agent.firstName} ${agent.lastName}`)
+                        .join(", ")}
+                    </p>
+                  )}
 
                 {/* Specifications */}
                 <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
@@ -534,47 +576,36 @@ const AssignedProperties = () => {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-12">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading your properties...</p>
-        </div>
+      <div className="text-center p-12">
+        <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+        <p className="text-gray-600">Loading properties...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 p-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            My Assigned Properties
+          <h1 className="text-2xl font-bold text-gray-900">
+            Property Management Dashboard
           </h1>
-          <p className="text-gray-600 mt-1">
-            Manage and showcase your property listings
-          </p>
-          <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
-            <span>Role: {formatToTitleCase(user?.role)}</span>
-            <span>•</span>
+          <p className="text-gray-600 mt-1 flex items-center">
+            <Shield className="w-4 h-4 mr-2" />
             <span>
-              Scope:{" "}
-              {roleLevel >= 8
-                ? "Regional"
-                : roleLevel >= 6
-                ? "Branch"
-                : roleLevel >= 4
-                ? "Team"
-                : "Personal"}{" "}
-              Properties
+              {user?.roleLabel || formatToTitleCase(user?.role || "")}
             </span>
-          </div>
+            <span className="text-blue-600 ml-2">
+              • {filteredProperties.length} properties in view
+            </span>
+          </p>
         </div>
 
         <div className="flex items-center space-x-3">
           <button
             onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
-            className="btn-secondary"
+            className="flex items-center px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
           >
             {viewMode === "grid" ? (
               <List className="w-4 h-4 mr-2" />
@@ -584,81 +615,146 @@ const AssignedProperties = () => {
             {viewMode === "grid" ? "List View" : "Grid View"}
           </button>
 
+          {canCreateProperties && (
+            <button
+              onClick={() => navigate("/agent/properties/new")}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Create Property
+            </button>
+          )}
+
           <button
-            onClick={fetchAssignedProperties}
-            disabled={loading}
-            className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            onClick={() => fetchAssignedProperties()}
+            disabled={loading || updating}
+            className="flex items-center px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
           >
             <RefreshCw
-              className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
+              className={`w-4 h-4 mr-2 ${
+                loading || updating ? "animate-spin" : ""
+              }`}
             />
             Refresh
           </button>
-
-          {canCreateProperties && (
-            <Link
-              to="/agent/properties/new"
-              className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              New Property
-            </Link>
-          )}
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Scope Tabs - Show if user has multiple scopes available */}
+      {availableScopes.length > 1 && (
+        <div className="bg-white rounded-lg p-4 border">
+          <h3 className="text-sm font-medium text-gray-700 mb-3">Data Scope</h3>
+          <div className="flex flex-wrap gap-2">
+            {availableScopes.map((scope) => (
+              <ScopeTab
+                key={scope.key}
+                scope={scope}
+                isActive={activeScope === scope.key}
+                onClick={handleScopeChange}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Statistics Dashboard */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         <StatCard
           title="Total Properties"
-          value={propertyStats.total}
+          value={propertyStats.total || 0}
           icon={Home}
-          color="bg-gradient-to-r from-blue-500 to-blue-600"
+          color="bg-blue-500"
         />
         <StatCard
           title="Available"
-          value={propertyStats.available}
+          value={propertyStats.available || 0}
           icon={CheckCircle}
-          color="bg-gradient-to-r from-green-500 to-green-600"
-          change={8}
-          trend="up"
+          color="bg-green-500"
+        />
+        <StatCard
+          title="Sold"
+          value={propertyStats.sold || 0}
+          icon={Target}
+          color="bg-red-500"
+        />
+        <StatCard
+          title="Rented"
+          value={propertyStats.rented || 0}
+          icon={Building}
+          color="bg-purple-500"
         />
         <StatCard
           title="Total Value"
-          value={Math.round(propertyStats.totalValue / 10000000)}
+          value={Math.round((propertyStats.totalValue || 0) / 10000000)}
           suffix="Cr"
           icon={DollarSign}
-          color="bg-gradient-to-r from-purple-500 to-purple-600"
+          color="bg-indigo-500"
         />
         <StatCard
-          title="New This Week"
-          value={propertyStats.thisWeek}
-          icon={Star}
-          color="bg-gradient-to-r from-orange-500 to-orange-600"
-          change={12}
-          trend="up"
+          title="This Week"
+          value={propertyStats.thisWeek || 0}
+          icon={TrendingUp}
+          color="bg-emerald-500"
         />
       </div>
 
+      {/* Team Stats - Only for managers with team data */}
+      {teamStats && canViewTeamProperties && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
+          <h3 className="text-sm font-medium text-blue-900 mb-3 flex items-center">
+            <Users className="w-4 h-4 mr-2" />
+            Team Property Portfolio Summary
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-lg p-3 text-center">
+              <p className="text-xl font-bold text-blue-600">
+                {teamStats.total || 0}
+              </p>
+              <p className="text-xs text-gray-600">Team Properties</p>
+            </div>
+            <div className="bg-white rounded-lg p-3 text-center">
+              <p className="text-xl font-bold text-green-600">
+                {teamStats.available || 0}
+              </p>
+              <p className="text-xs text-gray-600">Available</p>
+            </div>
+            <div className="bg-white rounded-lg p-3 text-center">
+              <p className="text-xl font-bold text-orange-600">
+                {teamStats.teamMembers || 0}
+              </p>
+              <p className="text-xs text-gray-600">Team Members</p>
+            </div>
+            <div className="bg-white rounded-lg p-3 text-center">
+              <p className="text-xl font-bold text-purple-600">
+                ₹{Math.round((teamStats.totalValue || 0) / 10000000)}Cr
+              </p>
+              <p className="text-xs text-gray-600">Portfolio Value</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Filters and Search */}
-      <div className="bg-white rounded-xl p-6 border border-gray-100">
-        <div className="flex flex-col lg:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search properties by title, area, or city..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+      <div className="bg-white rounded-lg p-4 border">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+          <div className="flex-1">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Search properties by title, area, city, or ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
           </div>
 
           <div className="flex items-center space-x-3">
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Types</option>
               <option value="residential">Residential</option>
@@ -670,7 +766,7 @@ const AssignedProperties = () => {
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Status</option>
               <option value="available">Available</option>
@@ -682,7 +778,7 @@ const AssignedProperties = () => {
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Categories</option>
               <option value="sale">For Sale</option>
@@ -693,9 +789,9 @@ const AssignedProperties = () => {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
             >
-              <option value="createdAt">Created Date</option>
+              <option value="createdAt">Date Added</option>
               <option value="pricing.amount">Price</option>
               <option value="title">Title</option>
               <option value="views">Views</option>
@@ -704,25 +800,34 @@ const AssignedProperties = () => {
         </div>
       </div>
 
-      {/* Properties Display */}
-      {filteredProperties.length === 0 ? (
-        <div className="bg-white rounded-xl p-12 text-center border border-gray-100">
-          <div className="text-gray-400 mb-4 text-5xl">🏠</div>
+      {/* Main Content */}
+      {loading ? (
+        <div className="text-center p-12">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <p className="text-gray-600">Loading properties...</p>
+        </div>
+      ) : filteredProperties.length === 0 ? (
+        <div className="bg-white rounded-lg p-12 text-center border">
+          <Home className="w-12 h-12 mx-auto mb-4 text-gray-400" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">
-            No properties found
+            No Properties Found
           </h3>
           <p className="text-gray-600 mb-6">
-            {properties.length === 0
-              ? "You don't have any properties assigned yet"
-              : "Try adjusting your search or filter criteria"}
+            {searchQuery ||
+            selectedType !== "all" ||
+            selectedStatus !== "all" ||
+            selectedCategory !== "all"
+              ? "Try adjusting your filters or search terms."
+              : "No properties available in this scope."}
           </p>
-          {canCreateProperties && (
-            <Link
-              to="/properties/new"
-              className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+          {canCreateProperties && activeScope === "own" && (
+            <button
+              onClick={() => navigate("/agent/properties/new")}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 mx-auto"
             >
-              Create Property
-            </Link>
+              <Plus className="w-4 h-4 mr-2" />
+              Create Your First Property
+            </button>
           )}
         </div>
       ) : (
@@ -743,45 +848,77 @@ const AssignedProperties = () => {
         </div>
       )}
 
-      {/* Performance Summary for Managers */}
-      {isManager && properties.length > 0 && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-100 p-6">
-          <h3 className="text-lg font-semibold text-blue-900 mb-4">
-            Property Portfolio Summary
+      {/* Bulk Operations - Only if user has permission */}
+      {canBulkOperations && filteredProperties.length > 0 && (
+        <div className="bg-white rounded-lg p-4 border">
+          <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+            <Zap className="w-4 h-4 mr-2" />
+            Bulk Operations
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="flex items-center space-x-3">
+            <button className="flex items-center px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
+              <Users className="w-4 h-4 mr-2" />
+              Bulk Assign Agents
+            </button>
+            <button className="flex items-center px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
+              <Settings className="w-4 h-4 mr-2" />
+              Bulk Status Update
+            </button>
+            <button className="flex items-center px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
+              <Upload className="w-4 h-4 mr-2" />
+              Export Properties
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Analytics - Only if user has permission */}
+      {canViewAnalytics && (
+        <div className="bg-white rounded-lg p-4 border">
+          <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+            <BarChart3 className="w-4 h-4 mr-2" />
+            Property Portfolio Analytics
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="text-center">
-              <p className="text-2xl font-bold text-blue-900">
-                {Math.round(
-                  (propertyStats.available / propertyStats.total) * 100
-                )}
+              <p className="text-lg font-bold text-blue-600">
+                {(
+                  ((propertyStats.available || 0) /
+                    (propertyStats.total || 1)) *
+                  100
+                ).toFixed(1)}
                 %
               </p>
-              <p className="text-sm text-blue-600">Availability Rate</p>
+              <p className="text-xs text-gray-600">Availability Rate</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-blue-900">
+              <p className="text-lg font-bold text-green-600">
                 ₹
                 {(
-                  propertyStats.totalValue /
-                  propertyStats.total /
+                  (propertyStats.totalValue || 0) /
+                  (propertyStats.total || 1) /
                   100000
                 ).toFixed(1)}
                 L
               </p>
-              <p className="text-sm text-blue-600">Average Value</p>
+              <p className="text-xs text-gray-600">Average Value</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-blue-900">
-                {propertyStats.sold + propertyStats.rented}
+              <p className="text-lg font-bold text-orange-600">
+                {(propertyStats.sold || 0) + (propertyStats.rented || 0)}
               </p>
-              <p className="text-sm text-blue-600">Closed Deals</p>
+              <p className="text-xs text-gray-600">Total Sales</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-blue-900">
-                {propertyStats.thisWeek}
+              <p className="text-lg font-bold text-purple-600">
+                {(
+                  (((propertyStats.sold || 0) + (propertyStats.rented || 0)) /
+                    (propertyStats.total || 1)) *
+                  100
+                ).toFixed(1)}
+                %
               </p>
-              <p className="text-sm text-blue-600">New This Week</p>
+              <p className="text-xs text-gray-600">Closure Rate</p>
             </div>
           </div>
         </div>

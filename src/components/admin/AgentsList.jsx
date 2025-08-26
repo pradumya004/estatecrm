@@ -19,11 +19,16 @@ import { useAuth } from "../../hooks/useAuth.js";
 import agentService from "../../services/agent.service.js";
 import { adminAPI } from "../../services/api.js";
 import { formatToTitleCase } from "../../utils/formatters.js";
+import { useRBAC } from "../../hooks/useRBAC.js";
 
 const AgentsList = () => {
   // --- HOOKS ---
   // Custom hook for authentication and RBAC permissions
-  const { user, rbac } = useAuth();
+  const { user } = useAuth();
+  const rbac = useRBAC(user);
+
+  console.log("User:", user);
+  console.log("RBAC:", rbac);
 
   // Custom hook for managing agent data, including state, fetching, and filters
   const {
@@ -38,7 +43,18 @@ const AgentsList = () => {
   } = useAgentsList(user);
 
   console.log("Agents List:", agents);
+  console.log("Pagination:", pagination);
   console.log("Filters:", filters);
+  console.log("Loading:", loading);
+  console.log("Error:", error);
+  console.log("Fetch Agents:", fetchAgents);
+  console.log("Update Filters:", updateFilters);
+  console.log("Update Pagination:", updatePagination);
+  
+  
+  
+  
+  
 
   // --- LOCAL COMPONENT STATE ---
   const [searchQuery, setSearchQuery] = useState("");

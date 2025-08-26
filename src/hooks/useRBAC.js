@@ -38,6 +38,27 @@ export const useRBAC = (user = null) => {
         PERMISSIONS.COMPANY_ANALYTICS
     ]);
 
+    const getAssignableRolesList = (allRoles = []) => {
+        if (!user || !userRole) {
+            // console.log('No user or role found');
+
+            return [];
+        }
+
+        // console.log("allRoles names:", allRoles.map(r => r.name));
+        // console.log("user role name:", userRole);
+
+        const currentUserRole = allRoles.find(r => r.name === userRole);
+        // console.log("Current user role:", currentUserRole);
+
+        if (!currentUserRole) return [];
+
+        // ✅ Return only names (strings)
+        return allRoles
+            .filter(r => r.level <= currentUserRole.level) // can assign roles <= your level
+            .map(r => r.name);
+    };
+
     return useMemo(() => ({
         // Core permission checking
         checkPermission,
@@ -59,7 +80,8 @@ export const useRBAC = (user = null) => {
         canViewAnalytics,
 
         // Direct access to user for complex checks
-        user
+        user,
+        getAssignableRolesList
     }), [
         checkPermission,
         checkAnyPermission,
